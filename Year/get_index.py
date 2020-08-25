@@ -10,6 +10,7 @@ import requests
 import random
 
 from config import COOKIES, PROVINCE_CODE, CITY_CODE
+import utils
 
 
 headers = {
@@ -34,6 +35,7 @@ class BaiduIndex:
     #_all_kind = ['all', 'pc', 'wise']
     _all_kind = ['all']
     _params_queue = queue.Queue()
+    cookies = COOKIES[0]
 
     def __init__(self, keywords: list, start_date: str, end_date: str, area=0):
         self.keywords = keywords
@@ -60,15 +62,21 @@ class BaiduIndex:
                     end_date=params_data['end_date'],
                     keywords=params_data['keywords']
                 )
-                '''for encrypt_data in encrypt_datas:
+                key = utils.get_key(uniqid, self.cookies)
+                # for encrypt_data in encrypt_datas:
+                #     for kind in self._all_kind:
+                #         encrypt_data[kind]['data'] = utils.decrypt_func(
+                #                 key, encrypt_data[kind]['data'])
+                #     for formated_data in self._format_data(encrypt_data):
+                #         yield formated_data
+                for encrypt_data in encrypt_datas:
                     for kind in self._all_kind:
-                        encrypt_data[kind]['data'] = self._decrypt_func(
+                        encrypt_data[kind]['data'] = utils.decrypt_func(
                                 key, encrypt_data[kind]['data'])
                     for formated_data in self._format_data(encrypt_data):
-                        #print(formated_data)
-                        yield formated_data'''
-                formated_data = encrypt_datas
-                return formated_data
+                        return   [formated_data['index']]
+                #formated_data = encrypt_datas
+                #return formated_data
                 #yield formated_data
 
             except requests.Timeout:
@@ -104,29 +112,46 @@ class BaiduIndex:
         :end_date; str, 2018-10-01
         :keyword; list, ['1', '2', '3']
         """
+        # request_args = {
+        #     'word': ','.join(keywords),
+        #     'startDate': start_date.strftime('%Y-%m-%d'),
+        #     'endDate': end_date.strftime('%Y-%m-%d'),
+        #     'area': self._area,
+        #     #'area': area,
+        # }
+        #
+        # url = 'http://index.baidu.com/api/SearchApi/index?' + urlencode(request_args)
+        # time.sleep(0.1)
+        # html = self._http_get(url)
+        # datas = json.loads(html)
+        # #print(json.dumps(datas,indent=2))
+        # uniqid = datas['data']['uniqid']
+        # #print(datas['data']['generalRatio'][0]['all']['avg'])#need!
+        # '''encrypt_datas = []
+        # for single_data in datas['data']['userIndexes']:
+        #     encrypt_datas.append(single_data)
+        # return (encrypt_datas, uniqid)'''
+        # encrypt_datas = []
+        # encrypt_datas.append(datas['data']['generalRatio'][0]['all']['avg'])
+        # return (encrypt_datas, uniqid)
+        word_list = [
+            [{'name': keyword, 'wordType': 1} for keyword in keyword_list]
+            for keyword_list in keywords
+        ]
         request_args = {
-            'word': ','.join(keywords),
+            'word': json.dumps(word_list),
             'startDate': start_date.strftime('%Y-%m-%d'),
             'endDate': end_date.strftime('%Y-%m-%d'),
             'area': self._area,
-            #'area': area,
         }
-
         url = 'http://index.baidu.com/api/SearchApi/index?' + urlencode(request_args)
-        time.sleep(0.1)
-        html = self._http_get(url)
+        html = utils.http_get(url, self.cookies)
         datas = json.loads(html)
-        #print(json.dumps(datas,indent=2))
         uniqid = datas['data']['uniqid']
-        #print(datas['data']['generalRatio'][0]['all']['avg'])#need!
-        '''encrypt_datas = []
+        encrypt_datas = []
         for single_data in datas['data']['userIndexes']:
             encrypt_datas.append(single_data)
-        return (encrypt_datas, uniqid)'''
-        encrypt_datas = []
-        encrypt_datas.append(datas['data']['generalRatio'][0]['all']['avg'])
         return (encrypt_datas, uniqid)
-
 
     def _get_key(self, uniqid):
         """
@@ -221,3 +246,30 @@ class BaiduIndex:
         """
         sleep_time = random.choice(range(50, 90)) * 0.1
         time.sleep(sleep_time)
+
+    def _format_data(self, data):
+        """
+            格式化堆在一起的数据
+        """
+        keyword = str(data['word'])
+        start_date = datetime.datetime.strptime(data['all']['startDate'], '%Y-%m-%d')
+        end_date = datetime.datetime.strptime(data['all']['endDate'], '%Y-%m-%d')
+        date_list = []
+        while start_date <= end_date:
+            date_list.append(start_date)
+            start_date += datetime.timedelta(days=1)
+
+        for kind in self._all_kind:
+            index_datas = data[kind]['data']
+            for i, cur_date in enumerate(date_list):
+                try:
+                    index_data = index_datas[i]
+                except IndexError:
+                    index_data = ''
+                formated_data = {
+                    'keyword': [keyword_info['name'] for keyword_info in json.loads(keyword.replace('\'', '"'))],
+                    'type': kind,
+                    'date': cur_date.strftime('%Y-%m-%d'),
+                    'index': index_data if index_data else '0'
+                }
+                yield formated_data
